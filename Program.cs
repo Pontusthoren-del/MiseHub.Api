@@ -1,6 +1,10 @@
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
 using MiseHub.Api.Interfaces;
 using MiseHub.Api.Middleware;
 using MiseHub.Api.Services.Fake;
+using Microsoft.AspNetCore.Authorization;
+using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -33,7 +37,37 @@ builder.Services.AddCors(options =>
 builder.Services.AddSingleton<ISupplierService, FakeSupplierService>();
 builder.Services.AddSingleton<IProductService, FakeProductService>();
 builder.Services.AddSingleton<IOrderService, FakeOrderService>();
+builder.Services.AddSingleton<IAuthService, FakeAuthService>();
 
+var jwtKey = builder.Configuration["Jwt:Key"]
+    ?? throw new InvalidOperationException("Jwt:Key missing in config.");
+
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+})
+.AddJwtBearer(options =>
+{
+    options.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
+    {
+        ValidateIssuer = true,
+        ValidIssuer = builder.Configuration["Jwt:Issuer"],
+        ValidateAudience = true,
+        ValidAudience = builder.Configuration["Jwt:Audience"],
+        ValidateIssuerSigningKey = true,
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
+        ValidateLifetime = true,
+        ClockSkew = TimeSpan.FromMinutes(1)
+    };
+});
+
+builder.Services.AddAuthorization(options =>
+{
+    options.FallbackPolicy = new AuthorizationPolicyBuilder()
+        .RequireAuthenticatedUser()
+        .Build();
+});
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
@@ -46,7 +80,8 @@ if (app.Environment.IsDevelopment())
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 
 app.UseCors();
-app.UseAuthorization(); // förberedd för inloggning senare — gör inget än
+app.UseAuthentication();
+app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
